@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark — three a day</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #14120F; --surface: #1E1B17; --surface-2: #262219;
+    --text: #EDE7DA; --muted: #948C7C;
+    --amber: #F2B705; --amber-dim: #8A6C15; --teal: #3EB8A1; --red: #D9634C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background: var(--bg); color: var(--text); font-family:'Space Grotesk', sans-serif; min-height:100vh; }
+  body { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { width:100%; max-width:460px; background: var(--surface); border-radius:18px; padding:28px 26px 24px; border:1px solid #2E2A22; overflow:hidden; }
+  .kicker { font-size:13px; color: var(--muted); margin:0 0 14px; font-weight:500; }
+  .slots-row { display:flex; gap:8px; margin-bottom:20px; }
+  .slot-pill { flex:1; text-align:center; padding:8px 4px; border-radius:9px; background: var(--surface-2); font-size:12px; color: var(--muted); font-weight:500; }
+  .slot-pill.active { background: #362E1A; color: var(--amber); }
+  .slot-pill.done { color: var(--teal); }
+  .slot-pill.missed { color: var(--red); opacity: 0.8; }
+  .date { font-size:13px; color: var(--amber); font-weight:500; margin:0 0 18px; }
+  .idea { font-size:25px; line-height:1.32; font-weight:700; min-height:120px; margin:0 0 20px; letter-spacing:-0.01em; }
+  .bar-track { height:6px; background: var(--surface-2); border-radius:4px; overflow:hidden; margin-bottom:20px; }
+  .bar-fill { height:100%; width:100%; background: var(--amber); border-radius:4px; transition: width 1s linear, background 0.4s ease; }
+  .rerolls { font-size:13px; color: var(--muted); margin-bottom:16px; }
+  .rerolls b { color: var(--text); }
+  .actions { display:flex; flex-direction: column; gap:10px; }
+  .actions-row { display:flex; gap:10px; }
+  button { font-family:inherit; font-size:15px; font-weight:500; border:none; border-radius:10px; padding:13px 16px; cursor:pointer; transition: transform 0.12s ease, opacity 0.2s ease; }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity:0.35; cursor:not-allowed; }
+  .btn-start { background: var(--teal); color:#0C1F1A; font-weight:700; width: 100%; }
+  .btn-reroll { flex:1; background: var(--surface-2); color: var(--text); }
+  .btn-weirder { flex:1; background: var(--surface-2); color: var(--amber); }
+  .locked { text-align:center; padding:16px 0 4px; }
+  .locked .big { font-size:21px; font-weight:700; color: var(--teal); margin:0 0 8px; }
+  .locked.missed .big { color: var(--red); }
+  .locked .sub { font-size:14px; color: var(--muted); margin:0 0 18px; }
+  .streak { font-size:14px; color: var(--muted); margin-top:4px; }
+  .streak b { color: var(--amber); }
+  .loading { text-align:center; color: var(--muted); padding:40px 0; }
+  .expired-flash { animation: flash 0.5s ease; }
+  @keyframes flash { 0% { background: var(--red); } 100% { background: var(--surface); } }
+  .footnote { font-size:12px; color: var(--muted); text-align:center; margin-top:16px; opacity:0.7; }
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+  <div id="loadingView" class="loading">Loading today's spark…</div>
+
+  <div id="live" style="display:none;">
+    <p class="kicker">Spark</p>
+    <div class="slots-row" id="slotsRow"></div>
+    <p class="date" id="dateLabel"></p>
+    <p class="idea" id="idea"></p>
+    <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+    <p class="rerolls" id="rerollText"></p>
+    <div class="actions">
+      <div class="actions-row">
+        <button class="btn-reroll" id="rerollBtn">Reroll (tamer)</button>
+        <button class="btn-weirder" id="weirderBtn">Not feeling it</button>
+      </div>
+      <button class="btn-start" id="startBtn">I started</button>
+    </div>
+  </div>
+
+  <div id="locked" style="display:none;" class="locked">
+    <div class="slots-row" id="slotsRowLocked"></div>
+    <p class="big" id="lockedTitle">Locked in.</p>
+    <p class="sub" id="lockedSub"></p>
+    <p class="streak">Full-day streak: <b id="streakCount">0</b> day(s)</p>
+  </div>
+
+  <p class="footnote">One idea per slot, three slots a day. No endless browsing.</p>
+</div>
+
+<script>
+(async function () {
+  const ideas = [
+    { t: "Start the task in a different room than usual, sitting on the floor.", w: 5 },
+    { t: "Set a 2-minute timer and only allow yourself to do the WORST part of the task.", w: 5 },
+    { t: "Do the first step out loud, narrating it like a cooking show.", w: 5 },
+    { t: "Text someone right now: 'starting X, don't let me flake.' Then start before they reply.", w: 5 },
+    { t: "Start the task wrong on purpose, then 'fix' your mistake — fixing is easier than beginning.", w: 5 },
+    { t: "Do the task while standing on one leg for the first 60 seconds.", w: 5 },
+    { t: "Announce out loud to an empty room: 'I am now starting.' Then actually start.", w: 5 },
+    { t: "Set your ringtone to something absurd, then start before it would go off.", w: 5 },
+    { t: "Put on sunglasses indoors, just for the first five minutes of the task.", w: 5 },
+    { t: "Do the task in a voice memo out loud instead of typing, then transcribe later.", w: 4 },
+    { t: "Put your phone in another room and set a paper timer for 10 minutes.", w: 4 },
+    { t: "Open the file/document and type one deliberately bad sentence, just to break the blank page.", w: 4 },
+    { t: "Play one song you've never heard before, and start before it ends.", w: 4 },
+    { t: "Set a visible countdown on your phone and race it, even if the number is arbitrary.", w: 4 },
+    { t: "Do the task with your non-dominant hand for the first minute, just to force focus.", w: 4 },
+    { t: "Start the task from the middle instead of the beginning.", w: 4 },
+    { t: "Bet a friend a small amount you'll have it started in 10 minutes. Text them now.", w: 4 },
+    { t: "Do the smallest possible sub-task first — rename the file, open the tab, nothing more.", w: 3 },
+    { t: "Tell yourself you're only 'previewing' the task, not doing it. See how long that lasts.", w: 3 },
+    { t: "Make a drink you've never tried, then start the task before it's finished.", w: 3 },
+    { t: "Write down the three ugliest possible outcomes of starting badly. Then start badly.", w: 3 },
+    { t: "Switch to a completely different chair or desk than you'd normally use.", w: 3 },
+    { t: "Give yourself exactly one minute to complain about the task out loud, then start.", w: 3 },
+    { t: "Do the task with a specific playlist genre you never listen to.", w: 3 },
+    { t: "Give yourself permission to stop after exactly 5 minutes. Set a timer to enforce the stop.", w: 2 },
+    { t: "Open the task and just read it through once. Nothing else required yet.", w: 2 },
+    { t: "Move to any new seat and begin the first line of the task there.", w: 2 },
+    { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 2 },
+    { t: "Set one item aside from your list and just start that single one.", w: 1 },
+    { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
+  ];
+
+  const MAX_ATTEMPTS_PER_SLOT = 5;
+  const TIMER_SECONDS = 20;
+  const STORAGE_KEY = 'spark-3x-state';
+  const SLOT_ORDER = ['morning', 'afternoon', 'evening'];
+  const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
+  const SLOT_WINDOWS = { morning: 'before 12:00', afternoon: '12:00–17:00', evening: 'after 17:00' };
+
+  function todayKey() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function currentSlotKey() {
+    const h = new Date().getHours();
+    if (h < 12) return 'morning';
+    if (h < 17) return 'afternoon';
+    return 'evening';
+  }
+
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  async function loadState() {
+    try {
+      const res = await window.storage.get(STORAGE_KEY, false);
+      return res ? JSON.parse(res.value) : null;
+    } catch (e) { return null; }
+  }
+  async function saveState(state) {
+    try { await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); } catch (e) {}
+  }
+
+  function refillPool(excludeText) {
+    let deck = shuffle(ideas);
+    if (excludeText && deck[0] && deck[0].t === excludeText) deck.push(deck.shift());
+    return deck;
+  }
+
+  // Tamer: first idea at or below maxW
+  function popTamer(pool, maxW) {
+    let idx = pool.findIndex(i => i.w <= maxW);
+    if (idx === -1) idx = 0;
+    return pool.splice(idx, 1)[0];
+  }
+
+  // Weirder: first idea at or above minW; fallback to the highest-w idea left
+  function popWeirder(pool, minW) {
+    let idx = pool.findIndex(i => i.w >= minW);
+    if (idx === -1) {
+      idx = 0;
+      for (let i = 1; i < pool.length; i++) if (pool[i].w > pool[idx].w) idx = i;
+    }
+    return pool.splice(idx, 1)[0];
+  }
+
+  let state = await loadState();
+  const today = todayKey();
+  const slotKey = currentSlotKey();
+
+  if (!state) {
+    state = { pool: refillPool(), slots: {}, currentDate: today, streak: 0 };
+  } else if (state.currentDate !== today) {
+    const s = state.slots || {};
+    const allDone = SLOT_ORDER.every(k => s[k] && s[k].status === 'started');
+    const lastIdea = s.evening ? s.evening.currentIdea : (s.afternoon ? s.afternoon.currentIdea : (s.morning ? s.morning.currentIdea : null));
+    const carriedStreak = allDone ? (state.streak || 0) + 1 : 0;
+    state = { pool: refillPool(lastIdea ? lastIdea.t : null), slots: {}, currentDate: today, streak: carriedStreak };
+  }
+
+  if (!state.slots[slotKey]) {
+    if (state.pool.length === 0) state.pool = refillPool();
+    state.slots[slotKey] = { currentIdea: popTamer(state.pool, 5), status: 'pending', attemptsUsed: 0 };
+  }
+
+  await saveState(state);
+
+  const loadingView = document.getElementById('loadingView');
+  const liveEl = document.getElementById('live');
+  const lockedEl = document.getElementById('locked');
+  const ideaEl = document.getElementById('idea');
+  const dateLabel = document.getElementById('dateLabel');
+  const barEl = document.getElementById('bar');
+  const rerollTextEl = document.getElementById('rerollText');
+  const rerollBtn = document.getElementById('rerollBtn');
+  const weirderBtn = document.getElementById('weirderBtn');
+  const startBtn = document.getElementById('startBtn');
+  const lockedTitleEl = document.getElementById('lockedTitle');
+  const lockedSubEl = document.getElementById('lockedSub');
+  const streakCountEl = document.getElementById('streakCount');
+  const card = document.getElementById('card');
+  const slotsRow = document.getElementById('slotsRow');
+  const slotsRowLocked = document.getElementById('slotsRowLocked');
+
+  let timeLeft = TIMER_SECONDS;
+  let timerId = null;
+
+  function friendlyDate() {
+    return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+
+  function renderSlotsRow(container) {
+    container.innerHTML = '';
+    SLOT_ORDER.forEach(k => {
+      const s = state.slots[k];
+      const pill = document.createElement('div');
+      pill.className = 'slot-pill';
+      if (k === slotKey) pill.classList.add('active');
+      if (s && s.status === 'started') pill.classList.add('done');
+      if (s && s.status === 'expired') pill.classList.add('missed');
+      pill.textContent = SLOT_LABELS[k];
+      container.appendChild(pill);
+    });
+  }
+
+  function updateAttemptsText() {
+    const slot = state.slots[slotKey];
+    const left = MAX_ATTEMPTS_PER_SLOT - slot.attemptsUsed;
+    if (left > 0) {
+      rerollTextEl.innerHTML = `<b>${left}</b> attempt${left === 1 ? '' : 's'} left this slot — tamer or weirder, your call`;
+      rerollBtn.disabled = false;
+      weirderBtn.disabled = false;
+    } else {
+      rerollTextEl.innerHTML = `No attempts left this slot — this one's it`;
+      rerollBtn.disabled = true;
+      weirderBtn.disabled = true;
+    }
+  }
+
+  function updateBar() {
+    const pct = (timeLeft / TIMER_SECONDS) * 100;
+    barEl.style.width = pct + '%';
+    barEl.style.background = pct < 30 ? 'var(--red)' : (pct < 60 ? 'var(--amber-dim)' : 'var(--amber)');
+  }
+
+  function renderLive() {
+    loadingView.style.display = 'none';
+    lockedEl.style.display = 'none';
+    liveEl.style.display = '';
+    renderSlotsRow(slotsRow);
+    dateLabel.textContent = `${friendlyDate()} · ${SLOT_LABELS[slotKey]}`;
+    ideaEl.textContent = state.slots[slotKey].currentIdea.t;
+    updateAttemptsText();
+    timeLeft = TIMER_SECONDS;
+    updateBar();
+    clearInterval(timerId);
+    timerId = setInterval(tick, 1000);
+  }
+
+  function nextUpText() {
+    const idx = SLOT_ORDER.indexOf(slotKey);
+    if (idx < SLOT_ORDER.length - 1) {
+      const nextKey = SLOT_ORDER[idx + 1];
+      return `Next up: ${SLOT_LABELS[nextKey]} (${SLOT_WINDOWS[nextKey]}).`;
+    }
+    return "That's all three for today. New set tomorrow morning.";
+  }
+
+  function renderLocked(startedThisSlot) {
+    clearInterval(timerId);
+    loadingView.style.display = 'none';
+    liveEl.style.display = 'none';
+    lockedEl.style.display = '';
+    renderSlotsRow(slotsRowLocked);
+    lockedEl.classList.toggle('missed', !startedThisSlot);
+    if (startedThisSlot) {
+      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]} locked in.`;
+      lockedSubEl.textContent = `Go. ${nextUpText()}`;
+    } else {
+      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]} ran out.`;
+      lockedSubEl.textContent = `That one's gone. ${nextUpText()}`;
+    }
+    streakCountEl.textContent = state.streak;
+  }
+
+  function tick() {
+    timeLeft -= 1;
+    updateBar();
+    if (timeLeft <= 0) {
+      clearInterval(timerId);
+      handleExpire();
+    }
+  }
+
+  async function handleExpire() {
+    card.classList.add('expired-flash');
+    setTimeout(() => card.classList.remove('expired-flash'), 500);
+    const slot = state.slots[slotKey];
+    if (slot.attemptsUsed < MAX_ATTEMPTS_PER_SLOT) {
+      slot.attemptsUsed += 1;
+      if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
+      slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
+      await saveState(state);
+      renderLive();
+    } else {
+      slot.status = 'expired';
+      await saveState(state);
+      renderLocked(false);
+    }
+  }
+
+  async function handleReroll() {
+    const slot = state.slots[slotKey];
+    if (slot.attemptsUsed >= MAX_ATTEMPTS_PER_SLOT) return;
+    slot.attemptsUsed += 1;
+    if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
+    slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
+    await saveState(state);
+    renderLive();
+  }
+
+  async function handleWeirder() {
+    const slot = state.slots[slotKey];
+    if (slot.attemptsUsed >= MAX_ATTEMPTS_PER_SLOT) return;
+    slot.attemptsUsed += 1;
+    if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
+    slot.currentIdea = popWeirder(state.pool, Math.min(5, slot.currentIdea.w + 1));
+    await saveState(state);
+    renderLive();
+  }
+
+  async function handleStart() {
+    state.slots[slotKey].status = 'started';
+    await saveState(state);
+    renderLocked(true);
+  }
+
+  rerollBtn.addEventListener('click', handleReroll);
+  weirderBtn.addEventListener('click', handleWeirder);
+  startBtn.addEventListener('click', handleStart);
+
+  const currentStatus = state.slots[slotKey].status;
+  if (currentStatus === 'started' || currentStatus === 'expired') {
+    renderLocked(currentStatus === 'started');
+  } else {
+    renderLive();
+  }
+})();
+</script>
+
+</body>
+</html>
