@@ -1,0 +1,6 @@
+{
+  "timerSeconds": 20,
+  "maxAttempts": 5,
+  "morningEnd": 12,
+  "afternoonEnd": 17
+}

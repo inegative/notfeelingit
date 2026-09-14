@@ -15,8 +15,10 @@
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background: var(--bg); color: var(--text); font-family:'Space Grotesk', sans-serif; min-height:100vh; }
   body { display:flex; align-items:center; justify-content:center; padding:24px; }
-  .card { width:100%; max-width:460px; background: var(--surface); border-radius:18px; padding:28px 26px 24px; border:1px solid #2E2A22; overflow:hidden; }
+  .card { width:100%; max-width:460px; background: var(--surface); border-radius:18px; padding:28px 26px 24px; border:1px solid #2E2A22; overflow:hidden; position: relative; }
   .kicker { font-size:13px; color: var(--muted); margin:0 0 14px; font-weight:500; }
+  .gear-btn { position:absolute; top:20px; right:20px; background:none; border:none; color: var(--muted); font-size:18px; padding:4px 8px; cursor:pointer; }
+  .gear-btn:hover { color: var(--text); }
   .slots-row { display:flex; gap:8px; margin-bottom:20px; }
   .slot-pill { flex:1; text-align:center; padding:8px 4px; border-radius:9px; background: var(--surface-2); font-size:12px; color: var(--muted); font-weight:500; }
   .slot-pill.active { background: #362E1A; color: var(--amber); }
@@ -24,8 +26,10 @@
   .slot-pill.missed { color: var(--red); opacity: 0.8; }
   .date { font-size:13px; color: var(--amber); font-weight:500; margin:0 0 18px; }
   .idea { font-size:25px; line-height:1.32; font-weight:700; min-height:120px; margin:0 0 20px; letter-spacing:-0.01em; }
-  .bar-track { height:6px; background: var(--surface-2); border-radius:4px; overflow:hidden; margin-bottom:20px; }
+  .bar-row { display:flex; align-items:center; gap:10px; margin-bottom:20px; }
+  .bar-track { flex:1; height:6px; background: var(--surface-2); border-radius:4px; overflow:hidden; }
   .bar-fill { height:100%; width:100%; background: var(--amber); border-radius:4px; transition: width 1s linear, background 0.4s ease; }
+  .btn-pause { background: var(--surface-2); color: var(--muted); font-size:12px; padding:6px 12px; border-radius:8px; flex-shrink:0; }
   .rerolls { font-size:13px; color: var(--muted); margin-bottom:16px; }
   .rerolls b { color: var(--text); }
   .actions { display:flex; flex-direction: column; gap:10px; }
@@ -46,11 +50,35 @@
   .expired-flash { animation: flash 0.5s ease; }
   @keyframes flash { 0% { background: var(--red); } 100% { background: var(--surface); } }
   .footnote { font-size:12px; color: var(--muted); text-align:center; margin-top:16px; opacity:0.7; }
+
+  .settings-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display:flex; align-items:center; justify-content:center; padding:24px; z-index: 10;
+  }
+  .settings-panel {
+    background: var(--surface); border: 1px solid #2E2A22; border-radius: 16px;
+    padding: 24px; width: 100%; max-width: 360px;
+  }
+  .settings-title { font-size:17px; font-weight:700; margin: 0 0 18px; }
+  .settings-panel label {
+    display:block; font-size:13px; color: var(--muted); margin-bottom:14px;
+  }
+  .settings-panel input {
+    display:block; width:100%; margin-top:6px; background: var(--surface-2);
+    border:1px solid #33301F; border-radius:8px; color: var(--text);
+    font-family:inherit; font-size:14px; padding:9px 10px;
+  }
+  .settings-actions { display:flex; gap:10px; margin-top:8px; }
+  .btn-cancel { flex:1; background: var(--surface-2); color: var(--text); }
+  .btn-save { flex:1; background: var(--teal); color:#0C1F1A; font-weight:700; }
+  .settings-note { font-size:12px; color: var(--muted); margin-top:2px; opacity:0.8; }
 </style>
 </head>
 <body>
 
 <div class="card" id="card">
+  <button class="gear-btn" id="settingsGearBtn" title="Settings">⚙</button>
+
   <div id="loadingView" class="loading">Loading today's spark…</div>
 
   <div id="live" style="display:none;">
@@ -58,7 +86,10 @@
     <div class="slots-row" id="slotsRow"></div>
     <p class="date" id="dateLabel"></p>
     <p class="idea" id="idea"></p>
-    <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+    <div class="bar-row">
+      <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+      <button class="btn-pause" id="pauseBtn">Pause</button>
+    </div>
     <p class="rerolls" id="rerollText"></p>
     <div class="actions">
       <div class="actions-row">
@@ -79,47 +110,109 @@
   <p class="footnote">One idea per slot, three slots a day. No endless browsing.</p>
 </div>
 
+<div class="settings-overlay" id="settingsOverlay" style="display:none;">
+  <div class="settings-panel">
+    <p class="settings-title">Settings</p>
+    <label>Timer length (seconds)
+      <input type="number" id="setTimer" min="5" max="120">
+    </label>
+    <label>Attempts per slot
+      <input type="number" id="setAttempts" min="1" max="20">
+    </label>
+    <label>Morning ends at (hour, 0–23)
+      <input type="number" id="setMorningEnd" min="1" max="23">
+    </label>
+    <label>Afternoon ends at (hour, 0–23)
+      <input type="number" id="setAfternoonEnd" min="2" max="24">
+      <span class="settings-note">Must be later than morning end. Evening runs from here to midnight.</span>
+    </label>
+    <div class="settings-actions">
+      <button class="btn-cancel" id="settingsCancel">Cancel</button>
+      <button class="btn-save" id="settingsSave">Save &amp; reload</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (async function () {
-  const ideas = [
-    { t: "Start the task in a different room than usual, sitting on the floor.", w: 5 },
-    { t: "Set a 2-minute timer and only allow yourself to do the WORST part of the task.", w: 5 },
-    { t: "Do the first step out loud, narrating it like a cooking show.", w: 5 },
-    { t: "Text someone right now: 'starting X, don't let me flake.' Then start before they reply.", w: 5 },
-    { t: "Start the task wrong on purpose, then 'fix' your mistake — fixing is easier than beginning.", w: 5 },
-    { t: "Do the task while standing on one leg for the first 60 seconds.", w: 5 },
-    { t: "Announce out loud to an empty room: 'I am now starting.' Then actually start.", w: 5 },
-    { t: "Set your ringtone to something absurd, then start before it would go off.", w: 5 },
-    { t: "Put on sunglasses indoors, just for the first five minutes of the task.", w: 5 },
-    { t: "Do the task in a voice memo out loud instead of typing, then transcribe later.", w: 4 },
-    { t: "Put your phone in another room and set a paper timer for 10 minutes.", w: 4 },
-    { t: "Open the file/document and type one deliberately bad sentence, just to break the blank page.", w: 4 },
-    { t: "Play one song you've never heard before, and start before it ends.", w: 4 },
-    { t: "Set a visible countdown on your phone and race it, even if the number is arbitrary.", w: 4 },
-    { t: "Do the task with your non-dominant hand for the first minute, just to force focus.", w: 4 },
-    { t: "Start the task from the middle instead of the beginning.", w: 4 },
-    { t: "Bet a friend a small amount you'll have it started in 10 minutes. Text them now.", w: 4 },
-    { t: "Do the smallest possible sub-task first — rename the file, open the tab, nothing more.", w: 3 },
-    { t: "Tell yourself you're only 'previewing' the task, not doing it. See how long that lasts.", w: 3 },
-    { t: "Make a drink you've never tried, then start the task before it's finished.", w: 3 },
-    { t: "Write down the three ugliest possible outcomes of starting badly. Then start badly.", w: 3 },
-    { t: "Switch to a completely different chair or desk than you'd normally use.", w: 3 },
-    { t: "Give yourself exactly one minute to complain about the task out loud, then start.", w: 3 },
-    { t: "Do the task with a specific playlist genre you never listen to.", w: 3 },
-    { t: "Give yourself permission to stop after exactly 5 minutes. Set a timer to enforce the stop.", w: 2 },
-    { t: "Open the task and just read it through once. Nothing else required yet.", w: 2 },
-    { t: "Move to any new seat and begin the first line of the task there.", w: 2 },
-    { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 2 },
-    { t: "Set one item aside from your list and just start that single one.", w: 1 },
+  const DEFAULT_SETTINGS = { timerSeconds: 20, maxAttempts: 5, morningEnd: 12, afternoonEnd: 17 };
+  // Small built-in fallback in case ideas.json can't be fetched (e.g. opened as a local file:// page).
+  const FALLBACK_IDEAS = [
     { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
+    { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 2 },
+    { t: "Make a drink you've never tried, then start the task before it's finished.", w: 3 },
+    { t: "Play one song you've never heard before, and start before it ends.", w: 4 },
+    { t: "Announce out loud to an empty room: 'I am now starting.' Then actually start.", w: 5 },
   ];
 
-  const MAX_ATTEMPTS_PER_SLOT = 5;
-  const TIMER_SECONDS = 20;
   const STORAGE_KEY = 'spark-3x-state';
+  const SETTINGS_OVERRIDE_KEY = 'spark-settings-overrides';
   const SLOT_ORDER = ['morning', 'afternoon', 'evening'];
   const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
-  const SLOT_WINDOWS = { morning: 'before 12:00', afternoon: '12:00–17:00', evening: 'after 17:00' };
+
+  function pad(h) { return String(((h % 24) + 24) % 24).padStart(2, '0'); }
+
+  async function fetchJSON(path) {
+    try {
+      const res = await fetch(path, { cache: 'no-store' });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
+  }
+
+  function parseIdeasText(text) {
+    return text
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'))
+      .map(line => {
+        const idx = line.lastIndexOf('|');
+        if (idx === -1) return { t: line, w: 3 };
+        const t = line.slice(0, idx).trim();
+        const w = Math.min(5, Math.max(1, parseInt(line.slice(idx + 1).trim(), 10) || 3));
+        return { t, w };
+      })
+      .filter(idea => idea.t.length > 0);
+  }
+
+  async function loadIdeas() {
+    try {
+      const res = await fetch('ideas.txt', { cache: 'no-store' });
+      if (res.ok) {
+        const parsed = parseIdeasText(await res.text());
+        if (parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return FALLBACK_IDEAS;
+  }
+
+  async function loadSettings() {
+    let settings = { ...DEFAULT_SETTINGS };
+    const fromFile = await fetchJSON('settings.json');
+    if (fromFile) settings = { ...settings, ...fromFile };
+    try {
+      const stored = await window.storage.get(SETTINGS_OVERRIDE_KEY, false);
+      if (stored) settings = { ...settings, ...JSON.parse(stored.value) };
+    } catch (e) {}
+    if (!(settings.afternoonEnd > settings.morningEnd)) {
+      settings.morningEnd = DEFAULT_SETTINGS.morningEnd;
+      settings.afternoonEnd = DEFAULT_SETTINGS.afternoonEnd;
+    }
+    return settings;
+  }
+
+  async function saveSettingsOverride(overrides) {
+    try { await window.storage.set(SETTINGS_OVERRIDE_KEY, JSON.stringify(overrides), false); } catch (e) {}
+  }
+
+  const ideas = await loadIdeas();
+  const settings = await loadSettings();
+
+  function slotWindowLabel(key) {
+    if (key === 'morning') return `before ${pad(settings.morningEnd)}:00`;
+    if (key === 'afternoon') return `${pad(settings.morningEnd)}:00–${pad(settings.afternoonEnd)}:00`;
+    return `after ${pad(settings.afternoonEnd)}:00`;
+  }
 
   function todayKey() {
     const d = new Date();
@@ -128,8 +221,8 @@
 
   function currentSlotKey() {
     const h = new Date().getHours();
-    if (h < 12) return 'morning';
-    if (h < 17) return 'afternoon';
+    if (h < settings.morningEnd) return 'morning';
+    if (h < settings.afternoonEnd) return 'afternoon';
     return 'evening';
   }
 
@@ -157,15 +250,11 @@
     if (excludeText && deck[0] && deck[0].t === excludeText) deck.push(deck.shift());
     return deck;
   }
-
-  // Tamer: first idea at or below maxW
   function popTamer(pool, maxW) {
     let idx = pool.findIndex(i => i.w <= maxW);
     if (idx === -1) idx = 0;
     return pool.splice(idx, 1)[0];
   }
-
-  // Weirder: first idea at or above minW; fallback to the highest-w idea left
   function popWeirder(pool, minW) {
     let idx = pool.findIndex(i => i.w >= minW);
     if (idx === -1) {
@@ -202,6 +291,7 @@
   const ideaEl = document.getElementById('idea');
   const dateLabel = document.getElementById('dateLabel');
   const barEl = document.getElementById('bar');
+  const pauseBtn = document.getElementById('pauseBtn');
   const rerollTextEl = document.getElementById('rerollText');
   const rerollBtn = document.getElementById('rerollBtn');
   const weirderBtn = document.getElementById('weirderBtn');
@@ -212,9 +302,18 @@
   const card = document.getElementById('card');
   const slotsRow = document.getElementById('slotsRow');
   const slotsRowLocked = document.getElementById('slotsRowLocked');
+  const settingsGearBtn = document.getElementById('settingsGearBtn');
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsCancel = document.getElementById('settingsCancel');
+  const settingsSave = document.getElementById('settingsSave');
+  const setTimer = document.getElementById('setTimer');
+  const setAttempts = document.getElementById('setAttempts');
+  const setMorningEnd = document.getElementById('setMorningEnd');
+  const setAfternoonEnd = document.getElementById('setAfternoonEnd');
 
-  let timeLeft = TIMER_SECONDS;
+  let timeLeft = settings.timerSeconds;
   let timerId = null;
+  let isPaused = false;
 
   function friendlyDate() {
     return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
@@ -236,7 +335,7 @@
 
   function updateAttemptsText() {
     const slot = state.slots[slotKey];
-    const left = MAX_ATTEMPTS_PER_SLOT - slot.attemptsUsed;
+    const left = settings.maxAttempts - slot.attemptsUsed;
     if (left > 0) {
       rerollTextEl.innerHTML = `<b>${left}</b> attempt${left === 1 ? '' : 's'} left this slot — tamer or weirder, your call`;
       rerollBtn.disabled = false;
@@ -249,9 +348,27 @@
   }
 
   function updateBar() {
-    const pct = (timeLeft / TIMER_SECONDS) * 100;
+    const pct = (timeLeft / settings.timerSeconds) * 100;
     barEl.style.width = pct + '%';
     barEl.style.background = pct < 30 ? 'var(--red)' : (pct < 60 ? 'var(--amber-dim)' : 'var(--amber)');
+  }
+
+  function startTimer() {
+    clearInterval(timerId);
+    timerId = setInterval(tick, 1000);
+    isPaused = false;
+    pauseBtn.textContent = 'Pause';
+  }
+
+  function stopTimerForPause() {
+    clearInterval(timerId);
+    isPaused = true;
+    pauseBtn.textContent = 'Resume';
+  }
+
+  function togglePause() {
+    if (isPaused) startTimer();
+    else stopTimerForPause();
   }
 
   function renderLive() {
@@ -262,17 +379,16 @@
     dateLabel.textContent = `${friendlyDate()} · ${SLOT_LABELS[slotKey]}`;
     ideaEl.textContent = state.slots[slotKey].currentIdea.t;
     updateAttemptsText();
-    timeLeft = TIMER_SECONDS;
+    timeLeft = settings.timerSeconds;
     updateBar();
-    clearInterval(timerId);
-    timerId = setInterval(tick, 1000);
+    startTimer();
   }
 
   function nextUpText() {
     const idx = SLOT_ORDER.indexOf(slotKey);
     if (idx < SLOT_ORDER.length - 1) {
       const nextKey = SLOT_ORDER[idx + 1];
-      return `Next up: ${SLOT_LABELS[nextKey]} (${SLOT_WINDOWS[nextKey]}).`;
+      return `Next up: ${SLOT_LABELS[nextKey]} (${slotWindowLabel(nextKey)}).`;
     }
     return "That's all three for today. New set tomorrow morning.";
   }
@@ -307,7 +423,7 @@
     card.classList.add('expired-flash');
     setTimeout(() => card.classList.remove('expired-flash'), 500);
     const slot = state.slots[slotKey];
-    if (slot.attemptsUsed < MAX_ATTEMPTS_PER_SLOT) {
+    if (slot.attemptsUsed < settings.maxAttempts) {
       slot.attemptsUsed += 1;
       if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
       slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
@@ -322,7 +438,7 @@
 
   async function handleReroll() {
     const slot = state.slots[slotKey];
-    if (slot.attemptsUsed >= MAX_ATTEMPTS_PER_SLOT) return;
+    if (slot.attemptsUsed >= settings.maxAttempts) return;
     slot.attemptsUsed += 1;
     if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
     slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
@@ -332,7 +448,7 @@
 
   async function handleWeirder() {
     const slot = state.slots[slotKey];
-    if (slot.attemptsUsed >= MAX_ATTEMPTS_PER_SLOT) return;
+    if (slot.attemptsUsed >= settings.maxAttempts) return;
     slot.attemptsUsed += 1;
     if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
     slot.currentIdea = popWeirder(state.pool, Math.min(5, slot.currentIdea.w + 1));
@@ -346,9 +462,38 @@
     renderLocked(true);
   }
 
+  function openSettings() {
+    setTimer.value = settings.timerSeconds;
+    setAttempts.value = settings.maxAttempts;
+    setMorningEnd.value = settings.morningEnd;
+    setAfternoonEnd.value = settings.afternoonEnd;
+    settingsOverlay.style.display = 'flex';
+  }
+  function closeSettings() {
+    settingsOverlay.style.display = 'none';
+  }
+  async function handleSaveSettings() {
+    const overrides = {
+      timerSeconds: Math.max(5, parseInt(setTimer.value, 10) || DEFAULT_SETTINGS.timerSeconds),
+      maxAttempts: Math.max(1, parseInt(setAttempts.value, 10) || DEFAULT_SETTINGS.maxAttempts),
+      morningEnd: Math.min(23, Math.max(1, parseInt(setMorningEnd.value, 10) || DEFAULT_SETTINGS.morningEnd)),
+      afternoonEnd: Math.min(24, Math.max(2, parseInt(setAfternoonEnd.value, 10) || DEFAULT_SETTINGS.afternoonEnd)),
+    };
+    if (!(overrides.afternoonEnd > overrides.morningEnd)) {
+      alert('Afternoon end must be later than morning end.');
+      return;
+    }
+    await saveSettingsOverride(overrides);
+    location.reload();
+  }
+
   rerollBtn.addEventListener('click', handleReroll);
   weirderBtn.addEventListener('click', handleWeirder);
   startBtn.addEventListener('click', handleStart);
+  pauseBtn.addEventListener('click', togglePause);
+  settingsGearBtn.addEventListener('click', openSettings);
+  settingsCancel.addEventListener('click', closeSettings);
+  settingsSave.addEventListener('click', handleSaveSettings);
 
   const currentStatus = state.slots[slotKey].status;
   if (currentStatus === 'started' || currentStatus === 'expired') {
