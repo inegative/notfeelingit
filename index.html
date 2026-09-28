@@ -34,6 +34,12 @@
   .rerolls b { color: var(--text); }
   .actions { display:flex; flex-direction: column; gap:10px; }
   .actions-row { display:flex; gap:10px; }
+  .place-intro { font-size:15px; color: var(--muted); margin:0 0 16px; }
+  .place-options { display:flex; flex-direction: column; gap:10px; }
+  .place-btn { display:flex; align-items:center; gap:10px; background: var(--surface-2); color: var(--text); text-align:left; padding:14px 16px; font-size:15px; }
+  .place-btn .emoji { font-size:18px; }
+  .link-btn { background:none; color: var(--muted); font-size:12px; text-decoration:underline; padding:4px; align-self:center; }
+  .place-tag { display:inline-block; font-size:12px; color: var(--amber); background:#362E1A; border-radius:6px; padding:2px 8px; margin-left:8px; vertical-align:middle; }
   button { font-family:inherit; font-size:15px; font-weight:500; border:none; border-radius:10px; padding:13px 16px; cursor:pointer; transition: transform 0.12s ease, opacity 0.2s ease; }
   button:active { transform: scale(0.97); }
   button:disabled { opacity:0.35; cursor:not-allowed; }
@@ -81,6 +87,18 @@
 
   <div id="loadingView" class="loading">Loading today's spark…</div>
 
+  <div id="placePicker" style="display:none;">
+    <p class="kicker">Spark</p>
+    <div class="slots-row" id="slotsRowPlace"></div>
+    <p class="date" id="dateLabelPlace"></p>
+    <p class="place-intro">Where are you starting from?</p>
+    <div class="place-options">
+      <button class="place-btn" data-place="home"><span class="emoji">🏠</span> Home</button>
+      <button class="place-btn" data-place="work"><span class="emoji">💼</span> Work</button>
+      <button class="place-btn" data-place="cafe"><span class="emoji">☕</span> Café (out, not home or work)</button>
+    </div>
+  </div>
+
   <div id="live" style="display:none;">
     <p class="kicker">Spark</p>
     <div class="slots-row" id="slotsRow"></div>
@@ -91,6 +109,7 @@
       <button class="btn-pause" id="pauseBtn">Pause</button>
     </div>
     <p class="rerolls" id="rerollText"></p>
+    <button class="link-btn" id="changePlaceBtn">Change place</button>
     <div class="actions">
       <div class="actions-row">
         <button class="btn-reroll" id="rerollBtn">Reroll (tamer)</button>
@@ -107,7 +126,7 @@
     <p class="streak">Full-day streak: <b id="streakCount">0</b> day(s)</p>
   </div>
 
-  <p class="footnote">One idea per slot, three slots a day. No endless browsing.</p>
+  <p class="footnote">One idea per slot, three slots a day — picked for wherever you are.</p>
 </div>
 
 <div class="settings-overlay" id="settingsOverlay" style="display:none;">
@@ -136,16 +155,34 @@
 <script>
 (async function () {
   const DEFAULT_SETTINGS = { timerSeconds: 20, maxAttempts: 5, morningEnd: 12, afternoonEnd: 17 };
-  // Small built-in fallback in case ideas.json can't be fetched (e.g. opened as a local file:// page).
-  const FALLBACK_IDEAS = [
-    { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
-    { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 2 },
-    { t: "Make a drink you've never tried, then start the task before it's finished.", w: 3 },
-    { t: "Play one song you've never heard before, and start before it ends.", w: 4 },
-    { t: "Announce out loud to an empty room: 'I am now starting.' Then actually start.", w: 5 },
-  ];
+  const PLACE_ORDER = ['home', 'work', 'cafe'];
+  const PLACE_LABELS = { home: 'Home', work: 'Work', cafe: 'Café' };
+  const PLACE_EMOJI = { home: '🏠', work: '💼', cafe: '☕' };
+  const PLACE_FILES = { home: 'ideas-home.txt', work: 'ideas-work.txt', cafe: 'ideas-cafe.txt' };
 
-  const STORAGE_KEY = 'spark-3x-state';
+  // Small built-in fallback per place in case the .txt files can't be fetched (e.g. opened as a local file:// page).
+  const FALLBACK_IDEAS = {
+    home: [
+      { t: "Start the task sitting on the floor in a different room.", w: 5 },
+      { t: "Make a drink you've never tried, then start the task before it's finished.", w: 3 },
+      { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 2 },
+      { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
+    ],
+    work: [
+      { t: "Message a coworker 'starting X now' before you even begin.", w: 3 },
+      { t: "Do the smallest possible sub-task first — rename the file, open the tab, nothing more.", w: 2 },
+      { t: "Write the task's title at the top of a blank doc. That's the whole step.", w: 1 },
+      { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
+    ],
+    cafe: [
+      { t: "Order a drink you've never tried, then start the task before it's finished.", w: 4 },
+      { t: "Pick a seat you've never sat in before, and start there.", w: 3 },
+      { t: "Write the task's title at the top of a blank page. That's the whole step.", w: 1 },
+      { t: "Open the tab or app you need. That's the whole step. Just open it.", w: 1 },
+    ],
+  };
+
+  const STORAGE_KEY = 'spark-3x-state-v2';
   const SETTINGS_OVERRIDE_KEY = 'spark-settings-overrides';
   const SLOT_ORDER = ['morning', 'afternoon', 'evening'];
   const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
@@ -175,15 +212,22 @@
       .filter(idea => idea.t.length > 0);
   }
 
-  async function loadIdeas() {
+  async function loadIdeasForPlace(place) {
     try {
-      const res = await fetch('ideas.txt', { cache: 'no-store' });
+      const res = await fetch(PLACE_FILES[place], { cache: 'no-store' });
       if (res.ok) {
         const parsed = parseIdeasText(await res.text());
         if (parsed.length > 0) return parsed;
       }
     } catch (e) {}
-    return FALLBACK_IDEAS;
+    return FALLBACK_IDEAS[place];
+  }
+
+  async function loadAllIdeas() {
+    const entries = await Promise.all(PLACE_ORDER.map(async (p) => [p, await loadIdeasForPlace(p)]));
+    const result = {};
+    entries.forEach(([p, list]) => { result[p] = list; });
+    return result;
   }
 
   async function loadSettings() {
@@ -205,7 +249,7 @@
     try { await window.storage.set(SETTINGS_OVERRIDE_KEY, JSON.stringify(overrides), false); } catch (e) {}
   }
 
-  const ideas = await loadIdeas();
+  const ideasByPlace = await loadAllIdeas();
   const settings = await loadSettings();
 
   function slotWindowLabel(key) {
@@ -245,10 +289,15 @@
     try { await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); } catch (e) {}
   }
 
-  function refillPool(excludeText) {
-    let deck = shuffle(ideas);
+  function refillPool(place, excludeText) {
+    let deck = shuffle(ideasByPlace[place]);
     if (excludeText && deck[0] && deck[0].t === excludeText) deck.push(deck.shift());
     return deck;
+  }
+  function emptyPools() {
+    const p = {};
+    PLACE_ORDER.forEach(k => { p[k] = []; });
+    return p;
   }
   function popTamer(pool, maxW) {
     let idx = pool.findIndex(i => i.w <= maxW);
@@ -268,39 +317,44 @@
   const today = todayKey();
   const slotKey = currentSlotKey();
 
-  if (!state) {
-    state = { pool: refillPool(), slots: {}, currentDate: today, streak: 0 };
+  if (!state || !state.pools) {
+    // Fresh start, or an older version of this app's saved state (single shared pool,
+    // no place picker) — start clean on the new per-place structure.
+    state = { pools: emptyPools(), slots: {}, currentDate: today, streak: (state && state.streak) || 0 };
   } else if (state.currentDate !== today) {
     const s = state.slots || {};
     const allDone = SLOT_ORDER.every(k => s[k] && s[k].status === 'started');
-    const lastIdea = s.evening ? s.evening.currentIdea : (s.afternoon ? s.afternoon.currentIdea : (s.morning ? s.morning.currentIdea : null));
     const carriedStreak = allDone ? (state.streak || 0) + 1 : 0;
-    state = { pool: refillPool(lastIdea ? lastIdea.t : null), slots: {}, currentDate: today, streak: carriedStreak };
+    state = { pools: emptyPools(), slots: {}, currentDate: today, streak: carriedStreak };
   }
 
   if (!state.slots[slotKey]) {
-    if (state.pool.length === 0) state.pool = refillPool();
-    state.slots[slotKey] = { currentIdea: popTamer(state.pool, 5), status: 'pending', attemptsUsed: 0 };
+    state.slots[slotKey] = { place: null, currentIdea: null, status: 'pending', attemptsUsed: 0 };
   }
 
   await saveState(state);
 
   const loadingView = document.getElementById('loadingView');
+  const placePickerEl = document.getElementById('placePicker');
   const liveEl = document.getElementById('live');
   const lockedEl = document.getElementById('locked');
   const ideaEl = document.getElementById('idea');
   const dateLabel = document.getElementById('dateLabel');
+  const dateLabelPlace = document.getElementById('dateLabelPlace');
   const barEl = document.getElementById('bar');
   const pauseBtn = document.getElementById('pauseBtn');
   const rerollTextEl = document.getElementById('rerollText');
   const rerollBtn = document.getElementById('rerollBtn');
   const weirderBtn = document.getElementById('weirderBtn');
   const startBtn = document.getElementById('startBtn');
+  const changePlaceBtn = document.getElementById('changePlaceBtn');
+  const placeButtons = document.querySelectorAll('.place-btn');
   const lockedTitleEl = document.getElementById('lockedTitle');
   const lockedSubEl = document.getElementById('lockedSub');
   const streakCountEl = document.getElementById('streakCount');
   const card = document.getElementById('card');
   const slotsRow = document.getElementById('slotsRow');
+  const slotsRowPlace = document.getElementById('slotsRowPlace');
   const slotsRowLocked = document.getElementById('slotsRowLocked');
   const settingsGearBtn = document.getElementById('settingsGearBtn');
   const settingsOverlay = document.getElementById('settingsOverlay');
@@ -371,13 +425,25 @@
     else stopTimerForPause();
   }
 
+  function renderPlacePicker() {
+    clearInterval(timerId);
+    loadingView.style.display = 'none';
+    liveEl.style.display = 'none';
+    lockedEl.style.display = 'none';
+    placePickerEl.style.display = '';
+    renderSlotsRow(slotsRowPlace);
+    dateLabelPlace.textContent = `${friendlyDate()} · ${SLOT_LABELS[slotKey]}`;
+  }
+
   function renderLive() {
     loadingView.style.display = 'none';
+    placePickerEl.style.display = 'none';
     lockedEl.style.display = 'none';
     liveEl.style.display = '';
     renderSlotsRow(slotsRow);
-    dateLabel.textContent = `${friendlyDate()} · ${SLOT_LABELS[slotKey]}`;
-    ideaEl.textContent = state.slots[slotKey].currentIdea.t;
+    const slot = state.slots[slotKey];
+    dateLabel.innerHTML = `${friendlyDate()} · ${SLOT_LABELS[slotKey]}<span class="place-tag">${PLACE_EMOJI[slot.place]} ${PLACE_LABELS[slot.place]}</span>`;
+    ideaEl.textContent = slot.currentIdea.t;
     updateAttemptsText();
     timeLeft = settings.timerSeconds;
     updateBar();
@@ -396,15 +462,18 @@
   function renderLocked(startedThisSlot) {
     clearInterval(timerId);
     loadingView.style.display = 'none';
+    placePickerEl.style.display = 'none';
     liveEl.style.display = 'none';
     lockedEl.style.display = '';
     renderSlotsRow(slotsRowLocked);
     lockedEl.classList.toggle('missed', !startedThisSlot);
+    const slot = state.slots[slotKey];
+    const placeText = slot.place ? ` (${PLACE_EMOJI[slot.place]} ${PLACE_LABELS[slot.place]})` : '';
     if (startedThisSlot) {
-      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]} locked in.`;
+      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]}${placeText} locked in.`;
       lockedSubEl.textContent = `Go. ${nextUpText()}`;
     } else {
-      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]} ran out.`;
+      lockedTitleEl.textContent = `${SLOT_LABELS[slotKey]}${placeText} ran out.`;
       lockedSubEl.textContent = `That one's gone. ${nextUpText()}`;
     }
     streakCountEl.textContent = state.streak;
@@ -425,8 +494,8 @@
     const slot = state.slots[slotKey];
     if (slot.attemptsUsed < settings.maxAttempts) {
       slot.attemptsUsed += 1;
-      if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
-      slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
+      if (state.pools[slot.place].length === 0) state.pools[slot.place] = refillPool(slot.place, slot.currentIdea.t);
+      slot.currentIdea = popTamer(state.pools[slot.place], Math.max(1, slot.currentIdea.w - 1));
       await saveState(state);
       renderLive();
     } else {
@@ -440,8 +509,8 @@
     const slot = state.slots[slotKey];
     if (slot.attemptsUsed >= settings.maxAttempts) return;
     slot.attemptsUsed += 1;
-    if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
-    slot.currentIdea = popTamer(state.pool, Math.max(1, slot.currentIdea.w - 1));
+    if (state.pools[slot.place].length === 0) state.pools[slot.place] = refillPool(slot.place, slot.currentIdea.t);
+    slot.currentIdea = popTamer(state.pools[slot.place], Math.max(1, slot.currentIdea.w - 1));
     await saveState(state);
     renderLive();
   }
@@ -450,8 +519,8 @@
     const slot = state.slots[slotKey];
     if (slot.attemptsUsed >= settings.maxAttempts) return;
     slot.attemptsUsed += 1;
-    if (state.pool.length === 0) state.pool = refillPool(slot.currentIdea.t);
-    slot.currentIdea = popWeirder(state.pool, Math.min(5, slot.currentIdea.w + 1));
+    if (state.pools[slot.place].length === 0) state.pools[slot.place] = refillPool(slot.place, slot.currentIdea.t);
+    slot.currentIdea = popWeirder(state.pools[slot.place], Math.min(5, slot.currentIdea.w + 1));
     await saveState(state);
     renderLive();
   }
@@ -460,6 +529,27 @@
     state.slots[slotKey].status = 'started';
     await saveState(state);
     renderLocked(true);
+  }
+
+  async function handlePickPlace(place) {
+    const slot = state.slots[slotKey];
+    slot.place = place;
+    if (state.pools[place].length === 0) state.pools[place] = refillPool(place);
+    slot.currentIdea = popTamer(state.pools[place], 5);
+    slot.status = 'pending';
+    slot.attemptsUsed = 0;
+    await saveState(state);
+    renderLive();
+  }
+
+  async function handleChangePlace() {
+    const slot = state.slots[slotKey];
+    slot.place = null;
+    slot.currentIdea = null;
+    slot.attemptsUsed = 0;
+    slot.status = 'pending';
+    await saveState(state);
+    renderPlacePicker();
   }
 
   function openSettings() {
@@ -491,13 +581,19 @@
   weirderBtn.addEventListener('click', handleWeirder);
   startBtn.addEventListener('click', handleStart);
   pauseBtn.addEventListener('click', togglePause);
+  changePlaceBtn.addEventListener('click', handleChangePlace);
   settingsGearBtn.addEventListener('click', openSettings);
   settingsCancel.addEventListener('click', closeSettings);
   settingsSave.addEventListener('click', handleSaveSettings);
+  placeButtons.forEach(btn => {
+    btn.addEventListener('click', () => handlePickPlace(btn.dataset.place));
+  });
 
-  const currentStatus = state.slots[slotKey].status;
-  if (currentStatus === 'started' || currentStatus === 'expired') {
-    renderLocked(currentStatus === 'started');
+  const currentSlot = state.slots[slotKey];
+  if (currentSlot.status === 'started' || currentSlot.status === 'expired') {
+    renderLocked(currentSlot.status === 'started');
+  } else if (!currentSlot.place) {
+    renderPlacePicker();
   } else {
     renderLive();
   }
